@@ -7,6 +7,7 @@ as described in the following publication:
 D. Stowell and M. D. Plumbley, Framewise heterodyne chirp analysis of birdsong.
    In: Proceedings of the European Signal Processing Conference (EUSIPCO 2012),
    August 2012.
+    [Research paper PDF](http://c4dm.eecs.qmul.ac.uk/papers/2012/StowellPlumbley2012eusipco.pdf)
 
 You can think of this as being like a spectrogram analysis, but augmented with
 an extra dimension, that of *slope*.
