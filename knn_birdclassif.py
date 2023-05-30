@@ -59,8 +59,8 @@ def idf(data):
 	df = sum(detect, 0)
 	df[df == 0] = 1e-6  # avoid div-by-zero for terms not present in dataset (they're unused anyway)
 	idf = log(float(len(detect)) / df)
-	print "IDF precalculation: max %g, min %g, mean %g, len %i" % (max(idf), min(idf), mean(idf), len(idf))
-	print idf
+	print("IDF precalculation: max %g, min %g, mean %g, len %i" % (max(idf), min(idf), mean(idf), len(idf)))
+	print(idf)
 	return idf
 
 def tfidf(a, b, idfs):
@@ -70,9 +70,9 @@ def tfidf(a, b, idfs):
 ########################################################################################
 
 def loocvFile(csvpath, kvals):
-	print "Analysing %s" % csvpath
+	print("Analysing %s" % csvpath)
 	reader = csv.reader(open(csvpath, "rb"))
-	reader.next() # drop the header row
+	next(reader) # drop the header row
 	# loaded as list of tuples ([numbers], classif)
 	data = [{'histo': preprocessCsvNumbers(row[:-1]), 'class': row[-1]} for row in reader]
 
@@ -103,10 +103,10 @@ def loocvFile(csvpath, kvals):
 	classes = {}
 	for datum in data:
 		classes[datum['class']] = 1
-	classes = classes.keys()
+	classes = list(classes.keys())
 	classes.sort()
-	print "Classes in dataset:"
-	print classes
+	print("Classes in dataset:")
+	print(classes)
 	confusion = [zeros((len(classes), len(classes))) for _ in range(len(kvals))]
 	aucs      = zeros((len(data))) # each datum in the LOO will calc an AUC; we will report mean and CI.
 
@@ -185,12 +185,12 @@ def loocvFile(csvpath, kvals):
 			ax = fig.add_subplot(111)
 			ax.imshow(confusion[ik], aspect='auto', cmap=cm.gray, interpolation='nearest')
 			plt.title('Confusion matrix for k=%i (%s)' % (k, os.path.basename(csvpath)))
-	print "---------------------------"
+	print("---------------------------")
 	for ik, k in enumerate(kvals):
 		numcorrect = sum([confusion[ik][i][i] for i in range(len(classes))])
-		print "Num correct for k=%i: %i/%i (%g %%)" % (k, numcorrect, len(data), 100 * float(numcorrect) / float(len(data)))
-	print "---------------------------"
-	print "AUC (%%): mean %g +- %g" % (mean(aucs), 1.96 * std(aucs) / sqrt(len(data)))
+		print("Num correct for k=%i: %i/%i (%g %%)" % (k, numcorrect, len(data), 100 * float(numcorrect) / float(len(data))))
+	print("---------------------------")
+	print("AUC (%%): mean %g +- %g" % (mean(aucs), 1.96 * std(aucs) / sqrt(len(data))))
 	return aucs
 
 def loocvFileCompare(csvpath, kvals):
@@ -198,8 +198,8 @@ def loocvFileCompare(csvpath, kvals):
 	aucs = [loocvFile(csvpath % ('fft'), kvals),
 		loocvFile(csvpath % ('ch' ), kvals)]
 	(t, prob) = stats.ttest_rel(aucs[0], aucs[1])
-	print "---------------------------"
-	print "Paired T-test: t=%g, p=%g" % (t, prob)
+	print("---------------------------")
+	print("Paired T-test: t=%g, p=%g" % (t, prob))
 
 ########################################################################################
 # let us.
