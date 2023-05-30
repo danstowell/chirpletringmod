@@ -16,9 +16,9 @@ ch = chirpletringmod.Chirpletringmod(framesize=256)
 egsourcea = 2
 egsourceb = (len(ch.breakpoints) - egsourcea) - 1
 
-print "Example chirps used:"
-print "   %i: from %g to %g" % (egsourcea, ch.breakpoints[egsourcea][0] * ch.bintofreq, ch.breakpoints[egsourcea][1] * ch.bintofreq)
-print "   %i: from %g to %g" % (egsourceb, ch.breakpoints[egsourceb][0] * ch.bintofreq, ch.breakpoints[egsourceb][1] * ch.bintofreq)
+print("Example chirps used:")
+print("   %i: from %g to %g" % (egsourcea, ch.breakpoints[egsourcea][0] * ch.bintofreq, ch.breakpoints[egsourcea][1] * ch.bintofreq))
+print("   %i: from %g to %g" % (egsourceb, ch.breakpoints[egsourceb][0] * ch.bintofreq, ch.breakpoints[egsourceb][1] * ch.bintofreq))
 
 if True:
 	# single one plot:
@@ -37,9 +37,9 @@ if True:
 	fig = plt.figure()
 	ax = fig.add_subplot(121)
 	letsplot = 80
-	ax.plot(ffta[:letsplot], range(letsplot), 'k-')
+	ax.plot(ffta[:letsplot], list(range(letsplot)), 'k-')
 	ax = fig.add_subplot(122)
-	ax.plot(fftb[:letsplot], range(letsplot), 'k-')
+	ax.plot(fftb[:letsplot], list(range(letsplot)), 'k-')
 	plt.savefig("plots/testchirps_fft.pdf", papertype='A4', format='pdf')
 
 """
@@ -96,8 +96,8 @@ plt.title('Upper and lower bin-restrictions for detection')
 
 ####################################################################################
 # analysing an atom, then resynthesising it, should recreate it
-print "--------------------------------------------------------"
-print ch.breakpoints
+print("--------------------------------------------------------")
+print(ch.breakpoints)
 
 oneatom  = real(ch.atoms[len(ch.atoms)/2 - 4])
 oneatom  = real(ch.atoms[4])
@@ -111,12 +111,12 @@ ega = abs(ch.analyseframe(oneatom))
 ch.plotchirpogram(ega, cmap=cm.gray_r) #, title='Results of analysing atom #%i' % egsourcea, cmap=cm.gray_r)
 
 frameana = ch.analyseframeplusfeatures(oneatom, 0.5, 'ch', storeraw=False)
-print frameana
+print(frameana)
 remade   = ch.resynth([frameana['peaks']])
 
 maxval_orig   = max(abs(oneatom))
 maxval_remade = max(abs(remade ))
-print "orig peak %g, remade peak %g (ratio %g)" % (maxval_orig, maxval_remade, maxval_remade / maxval_orig)
+print("orig peak %g, remade peak %g (ratio %g)" % (maxval_orig, maxval_remade, maxval_remade / maxval_orig))
 maxval = max(maxval_orig, maxval_remade)
 fig = plt.figure()
 #plt.title('Atom; resynthesised; diff')

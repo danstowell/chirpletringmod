@@ -6,50 +6,61 @@
 from numpy import *
 from operator import itemgetter
 
+wbbrwarned = False
+
 class Chirpletringmod:
 
-	def __init__(self, samplerate = 44100.0, framesize = 1024, signalrange=(2000,8000), proberange=(6000,10000), wintype='modified'):
+	def __init__(self, samplerate = 44100.0, framesize = 1024, signalrange=(2000,8000), proberange=None, wintype='modified', probedepth=2000, downsampledict=False):
+		"""
+		downsampledict -- if not False, it should be an integer used to reduce the number of atoms actually used (e.g. '3' uses one-third the amount).
+                          This downsampling should only be used when analysing the full 2D gram and NOT when looking at peaks, since not yet compatible.
+		"""
 		self.sr = float(samplerate)
 		self.framesize = framesize#256 #512 in original devt; 1024 seems good for birdsong, so far
 		self.bintofreq = self.sr/self.framesize
 		self.freqtobin = float(self.framesize)/self.sr
-		framehalf = self.framesize / 2
+		framehalf = self.framesize // 2
 		######################################################################################
 		# Definitions of signal range. For example if probes are 6--10 kHz (all centred on 8) and the signal is expected in range 2--8 kHz, we detect in region 0--6
+		if proberange==None:
+			proberange = (signalrange[1] - probedepth, signalrange[1] + probedepth)
 		signallobin = int( ceil(signalrange[0] * self.freqtobin)) # 2000
 		signalhibin = int(floor(signalrange[1] * self.freqtobin)) # 8000
 		probelobin  = int(floor( proberange[0] * self.freqtobin)) # 6000
 		probehibin  = int( ceil( proberange[1] * self.freqtobin)) #10000
-		probemiddlebin = (probehibin+probelobin)/2
+		probemiddlebin = (probehibin+probelobin)//2
 		self.detectlobin = probemiddlebin - signalhibin
 		self.detecthibin = probemiddlebin - signallobin
-		print 'chipletringmod probetone range: bins %i to %i, freq range %g to %g' \
-					% (probelobin, probehibin, probelobin * self.bintofreq, probehibin * self.bintofreq)
-		print '   expecting signal in bin range %i to %i' % (signallobin, signalhibin)
-		print '     thus detecting in bin range %i to %i' % (self.detectlobin, self.detecthibin)
-		probebinrange = range(probelobin, probehibin)
-		self.halfprobebinspan = (probehibin-probelobin)/2
-		halfprobebinrange = range(self.halfprobebinspan)
+		self.downsampledict = downsampledict
+		print('chipletringmod probetone range: bins %i to %i, freq range %g to %g' \
+					% (probelobin, probehibin, probelobin * self.bintofreq, probehibin * self.bintofreq))
+		print('   expecting signal in bin range %i to %i' % (signallobin, signalhibin))
+		print('     thus detecting in bin range %i to %i' % (self.detectlobin, self.detecthibin))
+		probebinrange = list(range(probelobin, probehibin))
+		self.halfprobebinspan = (probehibin-probelobin)//2
+		halfprobebinrange = list(range(self.halfprobebinspan))
 		################################ choice of window:
 		if wintype=='hann':
 			window = hanning(self.framesize)
 		elif wintype=='rect':
 			window = ones(self.framesize)
 		else: # 'modified' window is default
-			window = hstack((hanning(self.framesize/2)[:self.framesize/4], ones(self.framesize/2), hanning(self.framesize/2)[self.framesize/4:]))
+			window = hstack((hanning(self.framesize//2)[:self.framesize//4], ones(self.framesize//2), hanning(self.framesize//2)[self.framesize//4:]))
 		self.window = window
 
 		# Here we create our short-time chirp basis:
 		self.breakpoints = [ (probelobin+delta, probehibin-delta) for delta in halfprobebinrange ] \
 			    + [(probemiddlebin, probemiddlebin)] \
 			    + [ (probehibin-delta, probelobin+delta) for delta in halfprobebinrange[-1::-1] ]
-		print "num breakpoints is %i" % len(self.breakpoints)
+		if self.downsampledict:
+			self.breakpoints = self.breakpoints[::self.downsampledict]
+		print("num breakpoints is %i" % len(self.breakpoints))
 		self.atoms = array([self.make_complex_chirp(bp[0], bp[1]) for bp in self.breakpoints])
 
 	def make_complex_chirp(self, lobin, hibin, phaseoffset=0.):
 		"Creates a single complex chirp"
 		xs = arange(self.framesize, dtype=float)
-		framehalf = self.framesize / 2
+		framehalf = self.framesize // 2
 		# Here we're actually generating an array of phase-position-per-sample, which we will next convert to onde.
 		phases = 2 * pi * (xs-framehalf) * (lobin  + ((hibin-lobin)*xs/self.framesize)) / self.framesize
 		# enforce phase always starting at zero
@@ -71,8 +82,12 @@ class Chirpletringmod:
 	def withinbandbinrange(self, chirpogram, colindex):
 		"""The rectangle of FFT results contains some slopey ones that extend outside the specified freq range. 
 		This function returns a [lo,hi) BINrange for a column, so that you can iterate only the within-band bins."""
+		global wbbrwarned
+		if(self.downsampledict and not wbbrwarned):
+			print("            WARNING: withinbandbinrange() not compatible with 'downsampledict'.")
+			wbbrwarned = True
 		chshape = shape(chirpogram)
-		pos = abs(colindex - ((chshape[0]-1)/2))
+		pos = abs(colindex - ((chshape[0]-1)//2))
 		return (pos, chshape[1] - pos)
 
 	def revmap(self, atomindex, fakebin, hopsize=1.):
@@ -88,13 +103,13 @@ class Chirpletringmod:
 
 		OPTIMISING: Note that this function takes a large portion of the CPU time when analysing files.
 		I have hand-optimised this to avoid list generation and to reduce the number of sort operations; still quite heavy."""
-		results = [{'mag':0.0}] * n
+		results = [(0,0,0)] * n
 		bigger_n = max(n, 10) * 10  # reduce the amount of times we sort
 		lowest_mag_kept = -99999
 		# Here we iterate, maintaining a sorted list of results and adding if we find a winning bin
 		# Note: I reworked this to use the "iterate" method and it slooooowwwwed right down, so don't.
-		for index in xrange(shape(chirpogram)[0]):
-			for whichbin in xrange(*self.withinbandbinrange(chirpogram, index)):
+		for index in range(shape(chirpogram)[0]):
+			for whichbin in range(*self.withinbandbinrange(chirpogram, index)):
 				currmag = chirpogram[index,whichbin]
 				if (currmag > lowest_mag_kept)  \
 				     and (n==1 or self.isbinlocalpeak(chirpogram, index, whichbin)):
@@ -130,11 +145,26 @@ class Chirpletringmod:
 		"iterates over the 'diamond' of bins that represents the signal band of interest (i.e. the slopier it is, the fewer bins are included)"
 		for index, gramslice in enumerate(chirpogram):
 			foreachslice(state, index)
-			for whichbin in xrange(*self.withinbandbinrange(chirpogram, index)):
+			for whichbin in range(*self.withinbandbinrange(chirpogram, index)):
 				foreachbin(state, index, whichbin, gramslice[whichbin])
 
 	######################################################################################
 	# derived features
+
+	def crestperslope(self, chirpogram):
+		"""for each slope-index, finds a crest value. returns a list of them. the 'true' slope-index usually has the strongest crest since its energy is compacted."""
+		crests = [0.] * len(chirpogram)
+		for index, gramslice in enumerate(chirpogram):
+			total      = 0
+			normaliser = 0
+			peak       = 0
+			for whichbin in range(*self.withinbandbinrange(chirpogram, index)):
+				binval = abs(gramslice[whichbin])
+				total += binval
+				normaliser += 1
+				if binval > peak: peak = binval
+			crests[index] = peak / (total / float(normaliser))
+		return crests
 
 	def slopeCentroid(self, chirpogram):
 		"finds the slope-centroid of the frame, which yields a measure of how uppy or downy it is"
@@ -161,7 +191,7 @@ class Chirpletringmod:
 		return exp(state['numer'] * divider) / (state['denom'] * divider)
 
 	def medianfilter(self, data, halfnum=10):
-		return array([median(data[max(0,i-halfnum):i+halfnum+1]) for i in xrange(len(data))])
+		return array([median(data[max(0,i-halfnum):i+halfnum+1]) for i in range(len(data))])
 
 	def histogramBigram(self, frames, binsperdim=0, quantilecutoff=0.5):
 		"""supply an array of frames analysed using analyseframeplusfeatures().
@@ -174,7 +204,7 @@ class Chirpletringmod:
 			outshape = frames[0]['rawshape'] * 2
 
 		results = [] # our data will be stored in here, then sorted so we can use the top quantile
-		for i in xrange(len(frames)-1):
+		for i in range(len(frames)-1):
 			currpeaks = [frames[i]['peaks'][0], frames[i+1]['peaks'][0]]
 			mag = (currpeaks[0]['mag'] + currpeaks[1]['mag']) * 0.5 # average the mags
 			pos = (int(currpeaks[0]['atom'] * shapefacs[0]), int(currpeaks[0]['bin'] * shapefacs[1]), \
@@ -182,13 +212,13 @@ class Chirpletringmod:
 			results.append({'mag': mag, 'pos': pos})
 		#print results
 		results.sort(key=itemgetter('mag'))
-		print "sorted magnitudes are %g, %g ... %g, %g" % (results[0]['mag'], results[1]['mag'], results[-2]['mag'], results[-1]['mag'])
+		print("sorted magnitudes are %g, %g ... %g, %g" % (results[0]['mag'], results[1]['mag'], results[-2]['mag'], results[-1]['mag']))
 
 		histo = zeros(outshape)
 		magsum = 0.0
 		# now with a sorted array, we can use the strongest values to build our histogram
-		print "iterating range (%i, %i)" % (int(len(results) * quantilecutoff), len(results))
-		for i in xrange(int(len(results) * quantilecutoff), len(results)):
+		print("iterating range (%i, %i)" % (int(len(results) * quantilecutoff), len(results)))
+		for i in range(int(len(results) * quantilecutoff), len(results)):
 			pos = results[i]['pos']
 			mag = results[i]['mag']
 			histo[pos] += mag
@@ -211,17 +241,17 @@ class Chirpletringmod:
 	def peaksPad(self, frames, extrastart, extraend):
 		"Pads a dataset with null frames to make it a certain length"
 		numpeaks = len(frames[0]['peaks'])
-		ournull = {'peaks': [(0, 0, (0,0), 0) for _ in xrange(numpeaks)]}
+		ournull = {'peaks': [(0, 0, (0,0), 0) for _ in range(numpeaks)]}
 		# TODO for the null frequencies, we're using zero. this may be dodgy - perhaps we should use the first/last values instead?
-		newdata = [ournull for _ in xrange(extrastart)] \
+		newdata = [ournull for _ in range(extrastart)] \
 			+ frames \
-			+ [ournull for _ in xrange(extraend)]
+			+ [ournull for _ in range(extraend)]
 		return newdata
 
 	######################################################################################
 	# plots and accessories
 
-	def plotchirpogram(self, ff, title='', rangemax=None, cmap=None):
+	def plotchirpogram(self, ff, title='', rangemax=None, cmap=None, vlinecol='w', bare=False):
 		import matplotlib.pyplot as plt
 		fig = plt.figure()
 		ax = fig.add_subplot(111)
@@ -229,10 +259,15 @@ class Chirpletringmod:
 		ax.imshow(ff.T, aspect='auto', interpolation='nearest', norm=normer, cmap=cmap, \
 					extent=(shape(ff)[0]*0.5, -shape(ff)[0]*0.5, shape(ff)[1], 0))
 		#plt.axvline(shape(ff)[0] * 0.5 - 0.5, color='w')
-		plt.axvline(0, color='w')
-		plt.title(title)
-		plt.ylabel('Detection bin')
-		plt.xlabel('Slope (bins)')
+		plt.axvline(0, color=vlinecol)
+		if bare:
+			plt.xticks([])
+			plt.yticks([])
+		else:
+			plt.title(title)
+			plt.ylabel('Detection bin')
+			plt.xlabel('Slope (bins)')
+		return fig
 
 	def analyseframeplusfeatures(self, data, hopsize, mode, numtop=1, storeraw=True, addphase=True):
 		ana_complex = self.analyseframe(data)
@@ -240,7 +275,7 @@ class Chirpletringmod:
 		phase = 0 - angle(ana_complex)   # negation here to convert phase-of-detection to phase-of-original
 		if mode == 'fft':
 			# To easily emulate fft mode, we simply restrict to the CENTRAL bin
-			centreindex = (shape(ana)[0]-1) / 2
+			centreindex = (shape(ana)[0]-1) // 2
 			ana = array([ana[centreindex, : ]])
 			peaks = self.frametopresults(ana, numtop, hopsize, centreindex)
 		else:
@@ -274,7 +309,7 @@ class Chirpletringmod:
 		audioresult = zeros(numspls)
 		curoffset = 0
 		xs = arange(self.framesize, dtype=float)
-		framehalf = self.framesize / 2
+		framehalf = self.framesize // 2
 		for peaks in frames:
 			for peak in peaks:
 				# fromto is frequency... we actually like to convert back to bin
@@ -300,7 +335,7 @@ class Chirpletringmod:
 		curoffset = 0
 
 		xs = arange(self.framesize, dtype=float)
-		framehalf = self.framesize / 2
+		framehalf = self.framesize // 2
 		for peaks in frames:
 			for peak in peaks:
 				# synthesise freq-domain data having the bin, phase and amplitude of this peak
